@@ -13,7 +13,7 @@ class DensityMLP(nn.Module):
 
     def __init__(self, env_spec, ws=[64, 64], seed=None, obs_only=False):
         super(DensityMLP, self).__init__()
-        assert len(ws) == 2, 'Only two-layer MLP is supported'
+        assert len(ws) == 2, "Only two-layer MLP is supported"
         # Set the seed (DAPG style)
         if seed is not None:
             torch.manual_seed(seed)
@@ -25,7 +25,7 @@ class DensityMLP(nn.Module):
         if obs_only:
             self.fc0 = nn.Linear(self.obs_dim, ws[0])
         else:
-            self.fc0 = nn.Linear(self.obs_dim+self.act_dim, ws[0])
+            self.fc0 = nn.Linear(self.obs_dim + self.act_dim, ws[0])
         self.fc1 = nn.Linear(ws[0], ws[1])
         self.fc2 = nn.Linear(ws[1], 1)
         # Make params of the last layer small (following DAPG)

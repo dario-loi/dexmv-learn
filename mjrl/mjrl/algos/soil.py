@@ -1,4 +1,5 @@
 import logging
+
 logging.disable(logging.CRITICAL)
 import numpy as np
 import scipy
@@ -33,23 +34,26 @@ import mjrl.algos.invdyn as invdyn
 
 
 class SOIL(NPG):
-    def __init__(self, env, policy, baseline,
-                 demo_paths=None,
-                 normalized_step_size=0.01,
-                 FIM_invert_args={'iters': 10, 'damping': 1e-4},
-                 hvp_sample_frac=1.0,
-                 seed=None,
-                 save_logs=False,
-                 kl_dist=None,
-                 lam_0=1.0,  # sim coef
-                 lam_1=0.95, # decay coef
-                 pg_algo='trpo'
-                 ):
-
+    def __init__(
+        self,
+        env,
+        policy,
+        baseline,
+        demo_paths=None,
+        normalized_step_size=0.01,
+        FIM_invert_args={"iters": 10, "damping": 1e-4},
+        hvp_sample_frac=1.0,
+        seed=None,
+        save_logs=False,
+        kl_dist=None,
+        lam_0=1.0,  # sim coef
+        lam_1=0.95,  # decay coef
+        pg_algo="trpo",
+    ):
         self.env = env
         self.policy = policy
         self.baseline = baseline
-        self.kl_dist = kl_dist if kl_dist is not None else 0.5*normalized_step_size
+        self.kl_dist = kl_dist if kl_dist is not None else 0.5 * normalized_step_size
         self.seed = seed
         self.save_logs = save_logs
         self.FIM_invert_args = FIM_invert_args
@@ -72,20 +76,18 @@ class SOIL(NPG):
         self.inverse_model = self.inverse_model.to(self.device)
         # Load the inverse model
         if cfg.SOIL.CHECKPOINT:
-            with open(cfg.SOIL.CHECKPOINT, 'rb') as f:
+            with open(cfg.SOIL.CHECKPOINT, "rb") as f:
                 checkpoint_data = pickle.load(f)
-            self.inverse_model.load_state_dict(checkpoint_data['model_state'])
+            self.inverse_model.load_state_dict(checkpoint_data["model_state"])
         # Construct the replay buffer
         self.replay_buffer = ReplayBuffer(
             max_size=cfg.SOIL.RBS,
             ob_dim=self.inverse_model.obs_dim * 2,
-            ac_dim=self.inverse_model.act_dim
+            ac_dim=self.inverse_model.act_dim,
         )
         # Construct the inverse model optimizer
         self.inverse_model_optim = torch.optim.Adam(
-            self.inverse_model.parameters(),
-            lr=cfg.SOIL.LR,
-            weight_decay=cfg.SOIL.WD
+            self.inverse_model.parameters(), lr=cfg.SOIL.LR, weight_decay=cfg.SOIL.WD
         )
         # Construct the inverse model loss functions
         self.inverse_model_loss_fun = torch.nn.MSELoss()
@@ -136,8 +138,12 @@ class SOIL(NPG):
         loss_avg = loss_total / cfg.SOIL.NUM_ITER
 
         # Retrieve the demo trajectories
-        demo_obs_t = np.concatenate([path["observations"][:-1] for path in self.demo_paths])
-        demo_obs_t1 = np.concatenate([path["observations"][1:] for path in self.demo_paths])
+        demo_obs_t = np.concatenate(
+            [path["observations"][:-1] for path in self.demo_paths]
+        )
+        demo_obs_t1 = np.concatenate(
+            [path["observations"][1:] for path in self.demo_paths]
+        )
         # Prepare for inverse model input
         demo_obs_tt1 = np.concatenate([demo_obs_t, demo_obs_t1], axis=1)
         demo_obs_tt1 = torch.from_numpy(demo_obs_tt1).float().to(self.device)
@@ -147,7 +153,7 @@ class SOIL(NPG):
             demo_act_t_pred = self.inverse_model(demo_obs_tt1).cpu().numpy()
 
         # Compute demo adv
-        demo_w = self.lam_0 * (self.lam_1 ** self.iter_count)
+        demo_w = self.lam_0 * (self.lam_1**self.iter_count)
         demo_adv = demo_w * np.ones(demo_obs_t.shape[0])
         # Combine sampled and demo trajs
         all_obs = np.concatenate([obs, demo_obs_t])
@@ -166,9 +172,13 @@ class SOIL(NPG):
         min_return = np.amin(path_returns)
         max_return = np.amax(path_returns)
         base_stats = [mean_return, std_return, min_return, max_return]
-        self.running_score = mean_return if self.running_score is None else \
-                             0.9*self.running_score + 0.1*mean_return  # approx avg of last 10 iters
-        if self.save_logs: self.log_rollout_statistics(paths)
+        self.running_score = (
+            mean_return
+            if self.running_score is None
+            else 0.9 * self.running_score + 0.1 * mean_return
+        )  # approx avg of last 10 iters
+        if self.save_logs:
+            self.log_rollout_statistics(paths)
 
         # Keep track of times for various computations
         t_gLL = 0.0
@@ -180,29 +190,29 @@ class SOIL(NPG):
 
         # DAPG
         ts = timer.time()
-        #sample_coef = 1.0
+        # sample_coef = 1.0
         sample_coef = all_adv.shape[0] / adv.shape[0]
         dapg_grad = sample_coef * self.flat_vpg(all_obs, all_act, all_adv)
         t_gLL += timer.time() - ts
 
         # NPG
         ts = timer.time()
-        hvp = self.build_Hvp_eval([obs, act],
-                                  regu_coef=self.FIM_invert_args['damping'])
-        npg_grad = cg_solve(hvp, dapg_grad, x_0=dapg_grad.copy(),
-                            cg_iters=self.FIM_invert_args['iters'])
+        hvp = self.build_Hvp_eval([obs, act], regu_coef=self.FIM_invert_args["damping"])
+        npg_grad = cg_solve(
+            hvp, dapg_grad, x_0=dapg_grad.copy(), cg_iters=self.FIM_invert_args["iters"]
+        )
         t_FIM += timer.time() - ts
 
         # Step size computation
         # --------------------------
-        n_step_size = 2.0*self.kl_dist
+        n_step_size = 2.0 * self.kl_dist
         alpha = np.sqrt(np.abs(n_step_size / (np.dot(dapg_grad.T, npg_grad) + 1e-20)))
 
         # Policy update
         # --------------------------
         # NPG
-        if self.pg_algo == 'npg':
-            print('update by npg')
+        if self.pg_algo == "npg":
+            print("update by npg")
             curr_params = self.policy.get_param_values()
             new_params = curr_params + alpha * npg_grad
             self.policy.set_param_values(new_params, set_new=True, set_old=False)
@@ -210,41 +220,45 @@ class SOIL(NPG):
             kl_dist = self.kl_old_new(obs, act).data.numpy().ravel()[0]
             self.policy.set_param_values(new_params, set_new=True, set_old=True)
 
-
         # TRPO
         else:
-            #print((npg_grad*hvp(npg_grad)))
-            #print(type(npg_grad), type(hvp(npg_grad)))
+            # print((npg_grad*hvp(npg_grad)))
+            # print(type(npg_grad), type(hvp(npg_grad)))
             shs = 0.5 * (npg_grad * hvp(npg_grad)).sum(0, keepdims=True)
             lm = np.sqrt(shs / 1e-2)
             full_step = npg_grad / lm[0]
-            grads = torch.autograd.grad(self.CPI_surrogate(all_obs, all_act, all_adv), self.policy.trainable_params)
-            loss_grad = torch.cat([grad.view(-1)for grad in grads]).detach().numpy()
+            grads = torch.autograd.grad(
+                self.CPI_surrogate(all_obs, all_act, all_adv),
+                self.policy.trainable_params,
+            )
+            loss_grad = torch.cat([grad.view(-1) for grad in grads]).detach().numpy()
             print(loss_grad.shape, npg_grad.shape)
             neggdotstepdir = (loss_grad * npg_grad).sum(0, keepdims=True)
-            print(f'dot value: {neggdotstepdir}')
-            print('update by trpo')
+            print(f"dot value: {neggdotstepdir}")
+            print("update by trpo")
             curr_params = self.policy.get_param_values()
-            alpha = 1 # new implementation
+            alpha = 1  # new implementation
             for k in range(10):
                 new_params = curr_params + alpha * full_step
                 self.policy.set_param_values(new_params, set_new=True, set_old=False)
                 surr_after = self.CPI_surrogate(obs, act, adv).data.numpy().ravel()[0]
                 kl_dist = self.kl_old_new(obs, act).data.numpy().ravel()[0]
-                
-                actual_improve = (surr_after - surr_before)
+
+                actual_improve = surr_after - surr_before
                 expected_improve = neggdotstepdir / lm[0] * alpha
                 ratio = actual_improve / expected_improve
-                print(f'ratio: {ratio}, lm: {lm}')
-                
-                #if kl_dist < self.kl_dist:
-                if ratio.item() > .1 and actual_improve > 0:
+                print(f"ratio: {ratio}, lm: {lm}")
+
+                # if kl_dist < self.kl_dist:
+                if ratio.item() > 0.1 and actual_improve > 0:
                     break
                 else:
                     alpha = 0.5 * alpha
-                    print('step size too high. backtracking. | kl = %f | suff diff = %f' % \
-                            (kl_dist, surr_after-surr_before))
-            
+                    print(
+                        "step size too high. backtracking. | kl = %f | suff diff = %f"
+                        % (kl_dist, surr_after - surr_before)
+                    )
+
                 if k == 9:
                     alpha = 0
 
@@ -254,25 +268,24 @@ class SOIL(NPG):
             kl_dist = self.kl_old_new(obs, act).data.numpy().ravel()[0]
             self.policy.set_param_values(new_params, set_new=True, set_old=True)
 
-
         # Log information
         if self.save_logs:
-            self.logger.log_kv('alpha', alpha)
-            self.logger.log_kv('delta', n_step_size)
-            self.logger.log_kv('time_vpg', t_gLL)
-            self.logger.log_kv('time_npg', t_FIM)
-            self.logger.log_kv('kl_dist', kl_dist)
-            self.logger.log_kv('surr_improvement', surr_after - surr_before)
-            self.logger.log_kv('running_score', self.running_score)
-            self.logger.log_kv('time_invdyn', t_inverse_model)
-            self.logger.log_kv('invdyn_train_err', loss_avg)
+            self.logger.log_kv("alpha", alpha)
+            self.logger.log_kv("delta", n_step_size)
+            self.logger.log_kv("time_vpg", t_gLL)
+            self.logger.log_kv("time_npg", t_FIM)
+            self.logger.log_kv("kl_dist", kl_dist)
+            self.logger.log_kv("surr_improvement", surr_after - surr_before)
+            self.logger.log_kv("running_score", self.running_score)
+            self.logger.log_kv("time_invdyn", t_inverse_model)
+            self.logger.log_kv("invdyn_train_err", loss_avg)
             try:
                 self.env.env.env.evaluate_success(paths, self.logger)
             except:
                 # nested logic for backwards compatibility. TODO: clean this up.
                 try:
                     success_rate = self.env.env.env.evaluate_success(paths)
-                    self.logger.log_kv('success_rate', success_rate)
+                    self.logger.log_kv("success_rate", success_rate)
                 except:
                     pass
         return base_stats

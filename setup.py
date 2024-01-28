@@ -5,7 +5,4 @@
 from setuptools import setup
 
 
-setup(
-    name='tpi',
-    packages=['tpi']
-)
+setup(name="tpi", packages=["tpi"])

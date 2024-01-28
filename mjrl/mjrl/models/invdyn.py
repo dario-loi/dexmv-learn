@@ -21,13 +21,13 @@ class InvDynMLP(nn.Module):
             np.random.seed(seed)
         # Compute obs dim in a hacky way
         if cfg.INVDYN_ONPG_SUBSET:
-            if cfg.ENV_NAME == 'hammer-v0':
+            if cfg.ENV_NAME == "hammer-v0":
                 self.obs_dim = 36
-            elif cfg.ENV_NAME == 'door-v0':
+            elif cfg.ENV_NAME == "door-v0":
                 self.obs_dim = 30
-            elif cfg.ENV_NAME == 'relocate-v0':
+            elif cfg.ENV_NAME == "relocate-v0":
                 self.obs_dim = 30
-            elif cfg.ENV_NAME == 'pen-v0':
+            elif cfg.ENV_NAME == "pen-v0":
                 self.obs_dim = 24
             else:
                 assert False
@@ -41,19 +41,19 @@ class InvDynMLP(nn.Module):
             # wrist
             self.act_dim += 2
             # index finger
-            if cfg.CUSTOM_FINGERS_MASK[1] == '1':
+            if cfg.CUSTOM_FINGERS_MASK[1] == "1":
                 self.act_dim += 4
             # middle finger
-            if cfg.CUSTOM_FINGERS_MASK[2] == '1':
+            if cfg.CUSTOM_FINGERS_MASK[2] == "1":
                 self.act_dim += 4
             # ring finger
-            if cfg.CUSTOM_FINGERS_MASK[3] == '1':
+            if cfg.CUSTOM_FINGERS_MASK[3] == "1":
                 self.act_dim += 4
             # little finger
-            if cfg.CUSTOM_FINGERS_MASK[4] == '1':
+            if cfg.CUSTOM_FINGERS_MASK[4] == "1":
                 self.act_dim += 5
             # thumb
-            if cfg.CUSTOM_FINGERS_MASK[0] == '1':
+            if cfg.CUSTOM_FINGERS_MASK[0] == "1":
                 self.act_dim += 5
         else:
             self.act_dim = env_spec.action_dim

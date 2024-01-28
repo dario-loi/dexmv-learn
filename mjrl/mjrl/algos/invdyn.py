@@ -3,6 +3,7 @@
 """Inverse dynamics trainer."""
 
 import logging
+
 logging.disable(logging.CRITICAL)
 
 import numpy as np
@@ -25,9 +26,7 @@ def unnormalize(data, mean, std, eps=1e-8):
 class InvDynTrainer:
     """Trains inverse dynamics model."""
 
-    def __init__(
-        self, paths, model, num_ep=5, mb_size=64, lr=1e-3
-    ):
+    def __init__(self, paths, model, num_ep=5, mb_size=64, lr=1e-3):
         # Record the fields
         self.model = model
         self.num_ep = num_ep
@@ -35,10 +34,10 @@ class InvDynTrainer:
         # Construct the logger
         self.logger = DataLog()
         # Retrieve the consecutive obs
-        obs_t = np.concatenate([path['observations'][:-1] for path in paths])
-        obs_t1 = np.concatenate([path['observations'][1:] for path in paths])
+        obs_t = np.concatenate([path["observations"][:-1] for path in paths])
+        obs_t1 = np.concatenate([path["observations"][1:] for path in paths])
         # Retrieve the actions
-        act_t = np.concatenate([path['actions'][:-1] for path in paths])
+        act_t = np.concatenate([path["actions"][:-1] for path in paths])
         # Concat consecutive obs
         obs_tt1 = np.concatenate([obs_t, obs_t1], axis=1)
         # Normalize obs
@@ -82,18 +81,18 @@ class InvDynTrainer:
                 # Update the parameters
                 self.optimizer.step()
                 # Record the loss
-                loss_total += (loss * self.mb_size)
+                loss_total += loss * self.mb_size
             # Log epoch stats
             loss_avg = loss_total / (num_iter * self.mb_size)
-            self.logger.log_kv('epoch', cur_ep)
-            self.logger.log_kv('loss', loss_avg)
-            print('Epoch: {}, Loss: {:.6f}'.format(cur_ep, loss_avg))
+            self.logger.log_kv("epoch", cur_ep)
+            self.logger.log_kv("loss", loss_avg)
+            print("Epoch: {}, Loss: {:.6f}".format(cur_ep, loss_avg))
 
     def get_norm_stats(self):
         """Retrieves the normalization stats."""
         return {
-            'obs_mean': self.obs_mean,
-            'obs_std': self.obs_std,
-            'act_mean': self.act_mean,
-            'act_std': self.act_std
+            "obs_mean": self.obs_mean,
+            "obs_std": self.obs_std,
+            "act_mean": self.act_mean,
+            "act_std": self.act_std,
         }

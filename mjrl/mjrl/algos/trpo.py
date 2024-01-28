@@ -1,4 +1,5 @@
 import logging
+
 logging.disable(logging.CRITICAL)
 import numpy as np
 import scipy as sp
@@ -22,14 +23,20 @@ from mjrl.utils.cg_solve import cg_solve
 # Import NPG
 from mjrl.algos.npg_cg import NPG
 
+
 class TRPO(NPG):
-    def __init__(self, env, policy, baseline,
-                 kl_dist=0.01,
-                 FIM_invert_args={'iters': 10, 'damping': 1e-4},
-                 hvp_sample_frac=1.0,
-                 seed=None,
-                 save_logs=False,
-                 normalized_step_size=0.01):
+    def __init__(
+        self,
+        env,
+        policy,
+        baseline,
+        kl_dist=0.01,
+        FIM_invert_args={"iters": 10, "damping": 1e-4},
+        hvp_sample_frac=1.0,
+        seed=None,
+        save_logs=False,
+        normalized_step_size=0.01,
+    ):
         """
         All inputs are expected in mjrl's format unless specified
         :param normalized_step_size: Normalized step size (under the KL metric). Twice the desired KL distance
@@ -43,16 +50,16 @@ class TRPO(NPG):
         self.env = env
         self.policy = policy
         self.baseline = baseline
-        self.kl_dist = kl_dist if kl_dist is not None else 0.5*normalized_step_size
+        self.kl_dist = kl_dist if kl_dist is not None else 0.5 * normalized_step_size
         self.seed = seed
         self.save_logs = save_logs
         self.FIM_invert_args = FIM_invert_args
         self.hvp_subsample = hvp_sample_frac
         self.running_score = None
-        if save_logs: self.logger = DataLog()
+        if save_logs:
+            self.logger = DataLog()
 
     def train_from_paths(self, paths):
-
         # Concatenate from all the trajectories
         observations = np.concatenate([path["observations"] for path in paths])
         actions = np.concatenate([path["actions"] for path in paths])
@@ -70,9 +77,13 @@ class TRPO(NPG):
         min_return = np.amin(path_returns)
         max_return = np.amax(path_returns)
         base_stats = [mean_return, std_return, min_return, max_return]
-        self.running_score = mean_return if self.running_score is None else \
-                             0.9*self.running_score + 0.1*mean_return  # approx avg of last 10 iters
-        if self.save_logs: self.log_rollout_statistics(paths)
+        self.running_score = (
+            mean_return
+            if self.running_score is None
+            else 0.9 * self.running_score + 0.1 * mean_return
+        )  # approx avg of last 10 iters
+        if self.save_logs:
+            self.log_rollout_statistics(paths)
 
         # Keep track of times for various computations
         t_gLL = 0.0
@@ -80,7 +91,11 @@ class TRPO(NPG):
 
         # Optimization algorithm
         # --------------------------
-        surr_before = self.CPI_surrogate(observations, actions, advantages).data.numpy().ravel()[0]
+        surr_before = (
+            self.CPI_surrogate(observations, actions, advantages)
+            .data.numpy()
+            .ravel()[0]
+        )
 
         # VPG
         ts = timer.time()
@@ -89,73 +104,80 @@ class TRPO(NPG):
 
         # NPG
         ts = timer.time()
-        hvp = self.build_Hvp_eval([observations, actions],
-                                  regu_coef=self.FIM_invert_args['damping'])
-        npg_grad = cg_solve(hvp, vpg_grad, x_0=vpg_grad.copy(),
-                            cg_iters=self.FIM_invert_args['iters'])
+        hvp = self.build_Hvp_eval(
+            [observations, actions], regu_coef=self.FIM_invert_args["damping"]
+        )
+        npg_grad = cg_solve(
+            hvp, vpg_grad, x_0=vpg_grad.copy(), cg_iters=self.FIM_invert_args["iters"]
+        )
         t_FIM += timer.time() - ts
-
-
-
-
-
-
-
-
 
         # new implementation starts here
         shs = 0.5 * (npg_grad * hvp(npg_grad)).sum(0, keepdims=True)
         lm = np.sqrt(shs / 1e-2)
         full_step = npg_grad / lm[0]
-        grads = torch.autograd.grad(self.CPI_surrogate(observations, actions, advantages), self.policy.trainable_params)
+        grads = torch.autograd.grad(
+            self.CPI_surrogate(observations, actions, advantages),
+            self.policy.trainable_params,
+        )
         loss_grad = torch.cat([grad.view(-1) for grad in grads]).detach().numpy()
 
         neggdotstepdir = (loss_grad * npg_grad).sum(0, keepdims=True)
         curr_params = self.policy.get_param_values()
         alpha = 1
-        
+
         curr_params = self.policy.get_param_values()
         for k in range(10):
             new_params = curr_params + alpha * full_step
             self.policy.set_param_values(new_params, set_new=True, set_old=False)
             kl_dist = self.kl_old_new(observations, actions).data.numpy().ravel()[0]
-            surr_after = self.CPI_surrogate(observations, actions, advantages).data.numpy().ravel()[0]
+            surr_after = (
+                self.CPI_surrogate(observations, actions, advantages)
+                .data.numpy()
+                .ravel()[0]
+            )
 
-            actual_improve = (surr_after - surr_before)
+            actual_improve = surr_after - surr_before
             expected_improve = neggdotstepdir / lm[0] * alpha
             ratio = actual_improve / expected_improve
 
-            if ratio.item() > .1 and actual_improve > 0:
+            if ratio.item() > 0.1 and actual_improve > 0:
                 break
             else:
-                alpha = 0.5*alpha # backtrack
-                print("Step size too high. Backtracking. | kl = %f | surr diff = %f" % \
-                      (kl_dist, surr_after-surr_before) )
+                alpha = 0.5 * alpha  # backtrack
+                print(
+                    "Step size too high. Backtracking. | kl = %f | surr diff = %f"
+                    % (kl_dist, surr_after - surr_before)
+                )
             if k == 9:
                 alpha = 0.0
 
         new_params = curr_params + alpha * full_step
         self.policy.set_param_values(new_params, set_new=True, set_old=False)
         kl_dist = self.kl_old_new(observations, actions).data.numpy().ravel()[0]
-        surr_after = self.CPI_surrogate(observations, actions, advantages).data.numpy().ravel()[0]
+        surr_after = (
+            self.CPI_surrogate(observations, actions, advantages)
+            .data.numpy()
+            .ravel()[0]
+        )
         self.policy.set_param_values(new_params, set_new=True, set_old=True)
 
         # Log information
         if self.save_logs:
-            self.logger.log_kv('alpha', alpha)
-            #self.logger.log_kv('delta', n_step_size)
-            self.logger.log_kv('time_vpg', t_gLL)
-            self.logger.log_kv('time_npg', t_FIM)
-            self.logger.log_kv('kl_dist', kl_dist)
-            self.logger.log_kv('surr_improvement', surr_after - surr_before)
-            self.logger.log_kv('running_score', self.running_score)
+            self.logger.log_kv("alpha", alpha)
+            # self.logger.log_kv('delta', n_step_size)
+            self.logger.log_kv("time_vpg", t_gLL)
+            self.logger.log_kv("time_npg", t_FIM)
+            self.logger.log_kv("kl_dist", kl_dist)
+            self.logger.log_kv("surr_improvement", surr_after - surr_before)
+            self.logger.log_kv("running_score", self.running_score)
             try:
                 self.env.env.env.evaluate_success(paths, self.logger)
             except:
                 # nested logic for backwards compatibility. TODO: clean this up.
                 try:
                     success_rate = self.env.env.env.evaluate_success(paths)
-                    self.logger.log_kv('success_rate', success_rate)
+                    self.logger.log_kv("success_rate", success_rate)
                 except:
                     pass
 

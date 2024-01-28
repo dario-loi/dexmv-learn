@@ -1,5 +1,6 @@
 import matplotlib
-matplotlib.use('Agg')
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
@@ -7,8 +8,8 @@ import pickle
 import os
 import csv
 
-class DataLog:
 
+class DataLog:
     def __init__(self):
         self.log = {}
         self.max_len = 0
@@ -22,8 +23,8 @@ class DataLog:
             self.max_len = self.max_len + 1
 
     def save_log(self, save_path):
-        pickle.dump(self.log, open(save_path+'/log.pickle', 'wb'))
-        with open(save_path+'/log.csv', 'w') as csv_file:
+        pickle.dump(self.log, open(save_path + "/log.pickle", "wb"))
+        with open(save_path + "/log.csv", "w") as csv_file:
             fieldnames = self.log.keys()
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()

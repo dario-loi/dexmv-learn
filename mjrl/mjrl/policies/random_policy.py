@@ -1,8 +1,7 @@
-
 import numpy as np
 
 
-class RandomPolicy():
+class RandomPolicy:
     """Random learning."""
 
     def __init__(self, env, seed=0):
@@ -15,4 +14,4 @@ class RandomPolicy():
         action = np.random.uniform(
             low=self.act_low, high=self.act_high, size=(self.act_dim,)
         )
-        return [action, {'evaluation': action}]
+        return [action, {"evaluation": action}]
