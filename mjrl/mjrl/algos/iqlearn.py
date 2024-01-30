@@ -11,6 +11,7 @@ import time as timer
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from torch.distributions import Categorical, Normal
 import copy
 
 # samplers
@@ -34,7 +35,8 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         save_logs=False,
     ):
         super().__init__(env, policy, baseline, alpha, seed, save_logs)
-
+        self.actor = Categorical()
+        self.q_params = torch.randn(env.spec.observation_dim, env.spec.action_dim)
     @override
     def train_from_paths(self, paths):
         
@@ -63,8 +65,13 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # Keep track of times for various computations
         t_gLL = 0.0
         
+        # Q-function update
+        # --------------------------
+        # Initialize Q-function parameters randomly 
+        
+
         ts = timer.time()
-        gradient = self.iq_update(observations, actions, advantages) # change if needed
+        gradient = self.iq_update(observations, actions) # change if needed
         t_gLL += timer.time() - ts
         
         # Policy update
@@ -94,6 +101,48 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         return base_stats
     
-    def iq_update(self, observations, actions, advantages):
+    def iq_update(self, obs_samp, act_samp, rew_samp, obs_exp, act_exp, rew_exp):
+        '''
+        : Initialize Q-function Qθ, and optionally a policy πφ
+        2: for step t in {1...N} do
+        3: Train Q-function using objective from Equation :
+            argmaxJ(q)=Exp_e[phi(Q(s, a) − gamma* ExpV* (s'))]- (1-gamma)Exp_o[V* (s_0)]
+            θt+1 ← θt − αQ∇θ[−J (θ)]
+            (Use V∗ for Q-learning and V^πφ for actor-critic)
+        4: (only with actor-critic) Improve policy πφ with SAC style
+        actor update:
+        φt+1 ← φt + απ∇φEs∼D,a∼πφ(·|s)[Q(s, a) − log πφ(a|s)]
+        5: end for
+        '''
+        #define the loss J
+        #case of forward KL divergence
+        #phi(x) = -exp-(x+1)
         
+        #building J 
+        #1)expert part
+        
+        #calculate Q(s,a)
+        Q= self.q_params[obs_exp, act_exp]
+
+        #calculate V^pi(s')
+        action, log_prob, _ = self.actor.sample(obs_exp)
+        current_Q = self.q_params[obs_exp, action]
+        Vs_next = current_Q - self.alpha.detach() * log_prob
+
+        #argument of phi
+        update= Q - self.gamma*(Vs_next).mean()
+
+        #calculate phi
+        #with torch.no_grad():
+        #    phi = 1/(1+ reward)**2
+        phi=update/(1-update)
+        
+        #2)observation part
+        #calculate V^pi(s_0)ù
+        action, log_prob, _ = self.actor.sample(obs_samp)
+        current_Q = self.q_params[obs_samp, action]
+        V= current_Q - self.alpha.detach() * log_prob
+
+        #calculate J
+        J = phi.mean() - (1-self.gamma)*V.mean()
         pass
