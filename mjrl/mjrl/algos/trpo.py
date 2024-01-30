@@ -70,6 +70,11 @@ class TRPO(NPG):
         # normalized step size invariant to advantage scaling,
         # but scaling can help with least squares
 
+        print(observations)
+        print(actions)
+        print(observations.shape)
+        print(actions.shape)
+
         # cache return distributions for the paths
         path_returns = [sum(p["rewards"]) for p in paths]
         mean_return = np.mean(path_returns)

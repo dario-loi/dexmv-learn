@@ -66,6 +66,11 @@ class DAPG(NPG):
         advantages = np.concatenate([path["advantages"] for path in paths])
         advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-6)
 
+        print("==== DAPG Trajectory ====")
+        print(f"observations: {observations.shape}")
+        print(f"actions: {actions.shape}")
+        print(f"advantages: {advantages.shape}")
+
         if self.demo_paths is not None and self.lam_0 > 0.0:
             demo_obs = np.concatenate(
                 [path["observations"] for path in self.demo_paths]

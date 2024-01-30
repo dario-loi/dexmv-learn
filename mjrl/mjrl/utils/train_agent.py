@@ -73,6 +73,8 @@ def train_agent(
             gae_lambda=gae_lambda,
             num_cpu=num_cpu,
         )
+        print("Training agent PRINT")
+        print(type(agent))
         stats = agent.train_step(**args)
         train_curve[i] = stats[0]
         if evaluation_rollouts is not None and evaluation_rollouts > 0:

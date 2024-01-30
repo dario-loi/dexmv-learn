@@ -46,6 +46,12 @@ class MLPBaseline:
         )
         self.loss_function = torch.nn.MSELoss()
 
+        # print model parameters
+        acc = 0
+        for param in self.model.parameters():
+            acc += np.prod(param.size())
+        print("MLP Baseline with {:d} parameters".format(acc))
+
     def _features(self, paths):
         o = np.concatenate([path["observations"] for path in paths])
         o = np.clip(o, -10, 10) / 10.0
