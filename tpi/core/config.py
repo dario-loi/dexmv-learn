@@ -262,6 +262,9 @@ _C.GAIL_TRPO.LAM1 = 0.99
 _C.GAIL_TRPO.ADV_W = 0.1
 _C.GAIL_TRPO.CHECKPOINT = ""
 
+# IQLEARN
+_C.USE_IQLEARN = False
+
 # Demo matching options
 _C.MATCH_DIST = "h_dtw"
 _C.MATCH_POLICY = ""

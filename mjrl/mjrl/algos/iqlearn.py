@@ -1,6 +1,6 @@
 import logging
 from re import match
-from typing import override
+#from typing import override
 
 logging.disable(logging.CRITICAL)
 import numpy as np
@@ -23,6 +23,37 @@ import mjrl.algos.batch_reinforce as batch_reinforce
 import mjrl.utils.process_samples as process_samples
 from mjrl.utils.logger import DataLog
 
+# nn modules
+from torch import nn
+from torch.nn import functional as F
+
+class QLearn(nn.Module):
+    def __init__(self, obs_dim, act_dim,device='cpu'):
+        super().__init__()
+        self.fc1 = nn.Linear(obs_dim+act_dim, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, 1)
+        self.device=device
+        self.fc1.to(device)
+        self.fc2.to(device)
+        self.fc3.to(device)
+        self.apply(self.init_weights)
+
+    def init_weights(self, m):
+        if type(m) == nn.Linear:
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.0)
+
+    def forward(self, x):
+        x.to(self.device)
+        x = F.leaky_relu(self.fc1(x))
+        x = F.leaky_relu(self.fc2(x))
+        return F.leaky_relu(self.fc3(x))
+    
+    def get_q(self, obs, act):
+        x = torch.cat([obs, act], dim=-1)
+        return self.forward(x)
+    
 
 class IQLearn(batch_reinforce.BatchREINFORCE):
     def __init__(
@@ -31,23 +62,55 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         policy,
         baseline,
         alpha,  # lr
+        demo_paths=None,
         gamma=0.99,
         seed=None,
         save_logs=False,
     ):
         super().__init__(env, policy, baseline, alpha, seed, save_logs)
-        self.q_params = torch.randn(env.spec.observation_dim, env.spec.action_dim)
+        print(dir(env))
+        self.Qnet = QLearn(env.observation_dim, env.action_dim,device='cuda')
         self.gamma = gamma
-        self.Q_opt = torch.optim.Adam(self.q_params, lr=alpha)
+        self.demo_paths = demo_paths
+        self.Q_opt = torch.optim.Adam(self.Qnet.parameters(), lr=alpha)
         self.policy_opt = torch.optim.Adam(
             self.policy.model.parameters(), lr=alpha, maximize=True
         )
 
-    @override
+    #@override
     def train_from_paths(self, paths):
         # Concatenate from all the trajectories
         observations = np.concatenate([path["observations"] for path in paths])
         actions = np.concatenate([path["actions"] for path in paths])
+
+        # Sampled trajectories
+        act = np.concatenate([path["actions"] for path in paths])
+        act = torch.from_numpy(act).float().to(self.device)
+
+        # Retrieve the (st, at, st1) triplets
+        obs_t = np.concatenate([path["observations"][:-1] for path in paths])
+        obs_t1 = np.concatenate([path["observations"][1:] for path in paths])
+        obs_t = torch.from_numpy(obs_t).float().to(self.device)
+        obs_t1 = torch.from_numpy(obs_t1).float().to(self.device)
+
+        # Expert trajectories
+        demo_obs_t = np.concatenate(
+            [path["observations"][:-1] for path in self.demo_paths]
+        )
+        demo_obs_t1 = np.concatenate(
+            [path["observations"][1:] for path in self.demo_paths]
+        )
+
+        demo_act_t = np.concatenate(
+            [path["actions"][:-1] for path in self.demo_paths]
+        )
+
+        # Prepare for inverse model input
+        demo_obs_t = torch.from_numpy(demo_obs_t).float().to(self.device)
+        demo_obs_t1 = torch.from_numpy(demo_obs_t1).float().to(self.device)
+        demo_act_t = torch.from_numpy(demo_act_t).float().to(self.device)
+  
+
 
         # cache return distributions for the paths
         path_returns = [sum(p["rewards"]) for p in paths]
@@ -72,7 +135,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # Initialize Q-function parameters randomly
 
         ts = timer.time()
-        self.iq_update(observations, actions)  # change if needed
+        self.iq_update(obs_t, obs_t1, act, demo_obs_t, demo_obs_t1)
         t_gLL += timer.time() - ts
 
         # Log information
@@ -94,14 +157,12 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
     def iq_update(
         self,
-        obs_samp,
-        act_samp,
-        rew_samp,
-        next_obs_samp,
-        obs_exp,
-        act_exp,
-        rew_exp,
-        next_obs_exp,
+        obs_t,
+        obs_t1,
+        act,
+        demo_obs_t,
+        demo_obs_t1,
+    
     ):
         # define the loss J
         # case of forward KL divergence
@@ -112,14 +173,14 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         # calculate Q(s,a)
         self.policy.model.requires_grad = False
-        self.q_params.requires_grad = True
+        self.Qnet.requires_grad = True
 
-        Q = self.q_params[obs_samp, act_samp]
+        Q = self.get_q(obs_t, act)
 
         # calculate V^pi(s')
-        action = self.policy.get_action(next_obs_samp)
-        log_prob = self.policy.log_likelihood(next_obs_samp, action)
-        next_Q = self.q_params[next_obs_samp, action]
+        action = self.policy.get_action(obs_t1)
+        log_prob = self.policy.log_likelihood(obs_t1, action)
+        next_Q = self.Qnet.get_q(obs_t1, action)
         Vs_next = next_Q - log_prob
 
         # argument of phi
@@ -132,9 +193,9 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         # 2)observation part
         # calculate V^pi(s_0)
-        action = self.policy.get_action(next_obs_exp)
-        log_prob = self.policy.log_likelihood(next_obs_exp, action)
-        current_Q = self.q_params[obs_exp, action]
+        action = self.policy.get_action(demo_obs_t1)
+        log_prob = self.policy.log_likelihood(demo_obs_t1, action)
+        current_Q = self.Qnet.get_q(demo_obs_t, action)
         V = current_Q - log_prob
 
         # calculate J
@@ -145,12 +206,12 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         self.Q_opt.zero_grad()
 
         self.policy.model.requires_grad = True
-        self.q_params.requires_grad = False
+        self.Qnet.requires_grad = False
 
-        Q = self.q_params[obs_samp, act_samp]
+        Q = self.Qnet.get_q(obs_t, act)
 
-        action = self.policy.get_action(obs_samp)
-        log_prob = self.policy.log_likelihood(obs_samp, action)
+        action = self.policy.get_action(obs_t)
+        log_prob = self.policy.log_likelihood(obs_t, action)
 
         # calculate V^pi(s)
         V = (Q - log_prob).mean()
