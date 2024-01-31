@@ -27,7 +27,7 @@ from mjrl.utils.logger import DataLog
 from torch import nn
 from torch.nn import functional as F
 
-class QLearn(nn.Module):
+class QNet(nn.Module):
     def __init__(self, obs_dim, act_dim,device='cpu'):
         super().__init__()
         self.fc1 = nn.Linear(obs_dim+act_dim, 64)
@@ -51,6 +51,8 @@ class QLearn(nn.Module):
         return F.leaky_relu(self.fc3(x))
     
     def get_q(self, obs, act):
+        obs=torch.from_numpy(obs).float().to(self.device)
+        act=torch.from_numpy(act).float().to(self.device)
         x = torch.cat([obs, act], dim=-1)
         return self.forward(x)
     
@@ -68,14 +70,14 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         save_logs=False,
     ):
         super().__init__(env, policy, baseline, alpha, seed, save_logs)
-        print(dir(env))
-        self.Qnet = QLearn(env.observation_dim, env.action_dim,device='cuda')
+        self.Qnet = QNet(env.observation_dim, env.action_dim,device='cuda')
         self.gamma = gamma
         self.demo_paths = demo_paths
         self.Q_opt = torch.optim.Adam(self.Qnet.parameters(), lr=alpha)
         self.policy_opt = torch.optim.Adam(
-            self.policy.model.parameters(), lr=alpha, maximize=True
-        )
+            self.policy.model.parameters(), lr=alpha)# maximize=True
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
 
     #@override
     def train_from_paths(self, paths):
@@ -84,14 +86,14 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         actions = np.concatenate([path["actions"] for path in paths])
 
         # Sampled trajectories
-        act = np.concatenate([path["actions"] for path in paths])
-        act = torch.from_numpy(act).float().to(self.device)
+        act_t = np.concatenate([path["actions"][:-1] for path in paths])
+        #act_t = torch.from_numpy(act_t).float().to(self.device)
 
         # Retrieve the (st, at, st1) triplets
         obs_t = np.concatenate([path["observations"][:-1] for path in paths])
         obs_t1 = np.concatenate([path["observations"][1:] for path in paths])
-        obs_t = torch.from_numpy(obs_t).float().to(self.device)
-        obs_t1 = torch.from_numpy(obs_t1).float().to(self.device)
+        #obs_t = torch.from_numpy(obs_t).float().to(self.device)
+        #obs_t1 = torch.from_numpy(obs_t1).float().to(self.device)
 
         # Expert trajectories
         demo_obs_t = np.concatenate(
@@ -106,9 +108,9 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         )
 
         # Prepare for inverse model input
-        demo_obs_t = torch.from_numpy(demo_obs_t).float().to(self.device)
-        demo_obs_t1 = torch.from_numpy(demo_obs_t1).float().to(self.device)
-        demo_act_t = torch.from_numpy(demo_act_t).float().to(self.device)
+        #demo_obs_t = torch.from_numpy(demo_obs_t).float().to(self.device)
+        #demo_obs_t1 = torch.from_numpy(demo_obs_t1).float().to(self.device)
+        #demo_act_t = torch.from_numpy(demo_act_t).float().to(self.device)
   
 
 
@@ -135,7 +137,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # Initialize Q-function parameters randomly
 
         ts = timer.time()
-        self.iq_update(obs_t, obs_t1, act, demo_obs_t, demo_obs_t1)
+        self.iq_update(obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1)
         t_gLL += timer.time() - ts
 
         # Log information
@@ -159,7 +161,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         self,
         obs_t,
         obs_t1,
-        act,
+        act_t,
         demo_obs_t,
         demo_obs_t1,
     
@@ -169,15 +171,16 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # phi(x) = -exp-(x+1)
 
         # building J
-        # 1)expert part
+        # 1)sampled part
 
         # calculate Q(s,a)
         self.policy.model.requires_grad = False
         self.Qnet.requires_grad = True
 
-        Q = self.get_q(obs_t, act)
+        Q = self.Qnet.get_q(obs_t, act_t)
 
         # calculate V^pi(s')
+        print("obs_t1",obs_t1.shape)
         action = self.policy.get_action(obs_t1)
         log_prob = self.policy.log_likelihood(obs_t1, action)
         next_Q = self.Qnet.get_q(obs_t1, action)
@@ -187,11 +190,9 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         update = Q - self.gamma * (Vs_next).mean()
 
         # calculate phi
-        # with torch.no_grad():
-        #    phi = 1/(1+ reward)**2
         phi = update / (1 - update)
 
-        # 2)observation part
+        # 2)expert part
         # calculate V^pi(s_0)
         action = self.policy.get_action(demo_obs_t1)
         log_prob = self.policy.log_likelihood(demo_obs_t1, action)
@@ -208,13 +209,15 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         self.policy.model.requires_grad = True
         self.Qnet.requires_grad = False
 
-        Q = self.Qnet.get_q(obs_t, act)
+        Q = self.Qnet.get_q(obs_t, act_t)
 
         action = self.policy.get_action(obs_t)
         log_prob = self.policy.log_likelihood(obs_t, action)
 
         # calculate V^pi(s)
-        V = (Q - log_prob).mean()
+        V = - (Q - log_prob).mean() #THE MINUS HAS BEEN ADDED BECAUSE TO
+                                    # MAXIMIZE THE ORIGINAL OBJECTIVE
+  
 
         V.backward()
         self.policy_opt.step()

@@ -105,7 +105,7 @@ class MLP:
     # Main functions
     # ============================================
     def get_action(self, observation):
-        o = np.float32(observation.reshape(1, -1))
+        o = np.float32(observation.transpose())
         self.obs_var.data = torch.from_numpy(o)
         mean = self.model(self.obs_var).data.numpy().ravel()
         noise = np.exp(self.log_std_val) * np.random.randn(self.m)
@@ -215,6 +215,8 @@ class MuNet(nn.Module):
         self.out_scale = Variable(self.out_scale, requires_grad=False)
 
     def forward(self, x):
+        print(f'x shape: {x.shape}')
+        print(f'in_shift shape: {self.in_shift.shape}')
         out = (x - self.in_shift) / (self.in_scale + 1e-8)
         out = torch.tanh(self.fc0(out))
         out = torch.tanh(self.fc1(out))
