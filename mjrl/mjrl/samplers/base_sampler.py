@@ -82,7 +82,7 @@ def do_rollout(N, policy, T=1e6, env=None, env_name=None, pegasus_seed=None):
 
         path = dict(
             observations=np.array(observations),
-            actions=np.array(actions[0]),
+            actions=np.array(actions),
             rewards=np.array(rewards),
             agent_infos=tensor_utils.stack_tensor_dict_list(agent_infos),
             env_infos=tensor_utils.stack_tensor_dict_list(env_infos),
