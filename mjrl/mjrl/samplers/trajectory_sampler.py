@@ -8,17 +8,20 @@ import multiprocessing as mp
 import time as timer
 import mjrl.samplers.base_sampler as base_sampler
 import mjrl.samplers.evaluation_sampler as eval_sampler
-
+import torch
 
 def sample_paths(
     N, policy, T=1e6, env=None, env_name=None, pegasus_seed=None, mode="sample"
 ):
+    policy.model = policy.model.to("cpu")
+    
     if mode == "sample":
         return base_sampler.do_rollout(N, policy, T, env, env_name, pegasus_seed)
     elif mode == "evaluation":
-        return eval_sampler.do_evaluation_rollout(
-            N, policy, T, env, env_name, pegasus_seed
-        )
+        with torch.no_grad():
+            return eval_sampler.do_evaluation_rollout(
+                N, policy, T, env, env_name, pegasus_seed
+            )
     else:
         print(
             "Mode has to be either 'sample' for training time or 'evaluation' for test time performance"

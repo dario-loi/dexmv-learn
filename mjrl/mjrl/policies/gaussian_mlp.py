@@ -118,8 +118,8 @@ class MLP:
         noise = torch.exp(std_val) * torch.randn(self.m).to(observation.device)
         action = mean + noise
 
+        np_mean = mean.detach().cpu().numpy()
         if self.is_rollout:
-            np_mean = mean.detach().cpu().numpy()
 
             return [
                 action.detach().cpu().numpy(),
@@ -130,7 +130,7 @@ class MLP:
                 },
             ]
 
-        return [action, {"mean": mean, "log_std": self.log_std_val, "evaluation": mean}]
+        return [action, {"mean": np_mean, "log_std": self.log_std_val, "evaluation": np_mean}]
 
     def mean_LL(self, observations, actions, model=None, log_std=None):
         model = self.model if model is None else model

@@ -67,39 +67,39 @@ class BatchREINFORCE:
         gae_lambda=0.98,
         num_cpu="max",
     ):
-        # Clean up input arguments
-        if env_name is None:
-            env_name = self.env.env_id
-        if sample_mode != "trajectories" and sample_mode != "samples":
-            print("sample_mode in NPG must be either 'trajectories' or 'samples'")
-            quit()
+        with torch.no_grad():
+            # Clean up input arguments
+            if env_name is None:
+                env_name = self.env.env_id
+            if sample_mode != "trajectories" and sample_mode != "samples":
+                print("sample_mode in NPG must be either 'trajectories' or 'samples'")
+                quit()
 
-        ts = timer.time()
+            ts = timer.time()
 
-        if sample_mode == "trajectories":
-            paths = trajectory_sampler.sample_paths_parallel(
-                N, self.policy, T, env_name, self.seed, num_cpu
-            )
-        elif sample_mode == "samples":
-            paths = batch_sampler.sample_paths(
-                N,
-                self.policy,
-                T,
-                env_name=env_name,
-                pegasus_seed=self.seed,
-                num_cpu=num_cpu,
-                proj=proj,
-            )
+            if sample_mode == "trajectories":
+                paths = trajectory_sampler.sample_paths(
+                    N, self.policy, T, env_name=env_name, pegasus_seed=self.seed
+                )
+            elif sample_mode == "samples":
+                paths = batch_sampler.sample_paths(
+                    N,
+                    self.policy,
+                    T,
+                    env_name=env_name,
+                    pegasus_seed=self.seed,
+                    proj=proj,
+                )
 
-        if self.save_logs:
-            self.logger.log_kv("time_sampling", timer.time() - ts)
+            if self.save_logs:
+                self.logger.log_kv("time_sampling", timer.time() - ts)
 
-        self.seed = self.seed + N if self.seed is not None else self.seed
+            self.seed = self.seed + N if self.seed is not None else self.seed
 
-        # compute returns
-        process_samples.compute_returns(paths, gamma)
-        # compute advantages
-        process_samples.compute_advantages(paths, self.baseline, gamma, gae_lambda)
+            # compute returns
+            process_samples.compute_returns(paths, gamma)
+            # compute advantages
+            process_samples.compute_advantages(paths, self.baseline, gamma, gae_lambda)
         # train from paths
         eval_statistics = self.train_from_paths(paths)
         eval_statistics.append(N)

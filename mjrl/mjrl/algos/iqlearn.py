@@ -29,6 +29,7 @@ from torch import nn
 from torch.nn import functional as F
 
 
+
 def dump_tensors(only_gpu=True):
     print("Tensor objects dump")
     import gc
@@ -77,7 +78,7 @@ class QNet(nn.Module):
         obs = obs.to(self.device)
         act = act.to(self.device)
         x = torch.cat([obs, act], dim=-1)
-        return self.forward(x)
+        return self.forward(x).squeeze()
 
 
 class IQLearn(batch_reinforce.BatchREINFORCE):
@@ -105,7 +106,6 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
     # @override
     def train_from_paths(self, paths):
         # Sampled trajectories
-        sys.settrace(gpu_profile)
         act_t = np.concatenate([path["actions"][:-1] for path in paths])
         act_t = torch.from_numpy(act_t).float().to(self.device)
 
@@ -210,7 +210,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         # 2)expert part
         # calculate V^pi(s_0)
-        action = self.policy.get_action(demo_obs_t1)
+        action = self.policy.get_action(demo_obs_t1)[0]
         log_prob = self.policy.log_likelihood(demo_obs_t1, action)
         current_Q = self.Qnet.get_q(demo_obs_t, action)
         V = current_Q - log_prob
@@ -227,7 +227,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         Q = self.Qnet.get_q(obs_t, act_t)
 
-        action = self.policy.get_action(obs_t)
+        action = self.policy.get_action(obs_t)[0]
         log_prob = self.policy.log_likelihood(obs_t, action)
 
         # calculate V^pi(s)
