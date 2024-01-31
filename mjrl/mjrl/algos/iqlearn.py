@@ -1,6 +1,7 @@
 import logging
 from re import match
-#from typing import override
+
+# from typing import override
 
 logging.disable(logging.CRITICAL)
 import numpy as np
@@ -27,13 +28,35 @@ from mjrl.utils.logger import DataLog
 from torch import nn
 from torch.nn import functional as F
 
+
+def dump_tensors(only_gpu=True):
+    print("Tensor objects dump")
+    import gc
+
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (
+                hasattr(obj, "data") and torch.is_tensor(obj.data)
+            ):
+                if only_gpu and obj.device.type == "cpu":
+                    continue
+                print(type(obj), obj.size(), obj.device)
+        except:
+            pass
+    print("Memory summary")
+    print(torch.cuda.memory_summary())
+
+
 class QNet(nn.Module):
-    def __init__(self, obs_dim, act_dim,device='cpu'):
+    def __init__(self, obs_dim, act_dim, device="cpu"):
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim+act_dim, 64)
+        self.fc1 = nn.Linear(obs_dim + act_dim, 64)
         self.fc2 = nn.Linear(64, 64)
         self.fc3 = nn.Linear(64, 1)
-        self.device=device
+        self.device = device
         self.fc1.to(device)
         self.fc2.to(device)
         self.fc3.to(device)
@@ -49,13 +72,13 @@ class QNet(nn.Module):
         x = F.leaky_relu(self.fc1(x))
         x = F.leaky_relu(self.fc2(x))
         return F.leaky_relu(self.fc3(x))
-    
+
     def get_q(self, obs, act):
-        obs=torch.from_numpy(obs).float().to(self.device)
-        act=torch.from_numpy(act).float().to(self.device)
+        obs = obs.to(self.device)
+        act = act.to(self.device)
         x = torch.cat([obs, act], dim=-1)
         return self.forward(x)
-    
+
 
 class IQLearn(batch_reinforce.BatchREINFORCE):
     def __init__(
@@ -70,30 +93,27 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         save_logs=False,
     ):
         super().__init__(env, policy, baseline, alpha, seed, save_logs)
-        self.Qnet = QNet(env.observation_dim, env.action_dim,device='cuda')
+        self.Qnet = QNet(env.observation_dim, env.action_dim, device="cuda")
         self.gamma = gamma
         self.demo_paths = demo_paths
         self.Q_opt = torch.optim.Adam(self.Qnet.parameters(), lr=alpha)
         self.policy_opt = torch.optim.Adam(
-            self.policy.model.parameters(), lr=alpha)# maximize=True
+            self.policy.model.parameters(), lr=alpha
+        )  # maximize=True
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
 
-    #@override
+    # @override
     def train_from_paths(self, paths):
-        # Concatenate from all the trajectories
-        observations = np.concatenate([path["observations"] for path in paths])
-        actions = np.concatenate([path["actions"] for path in paths])
-
         # Sampled trajectories
+        sys.settrace(gpu_profile)
         act_t = np.concatenate([path["actions"][:-1] for path in paths])
-        #act_t = torch.from_numpy(act_t).float().to(self.device)
+        act_t = torch.from_numpy(act_t).float().to(self.device)
 
         # Retrieve the (st, at, st1) triplets
         obs_t = np.concatenate([path["observations"][:-1] for path in paths])
         obs_t1 = np.concatenate([path["observations"][1:] for path in paths])
-        #obs_t = torch.from_numpy(obs_t).float().to(self.device)
-        #obs_t1 = torch.from_numpy(obs_t1).float().to(self.device)
+        obs_t = torch.from_numpy(obs_t).float().to(self.device)
+        obs_t1 = torch.from_numpy(obs_t1).float().to(self.device)
 
         # Expert trajectories
         demo_obs_t = np.concatenate(
@@ -103,24 +123,19 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
             [path["observations"][1:] for path in self.demo_paths]
         )
 
-        demo_act_t = np.concatenate(
-            [path["actions"][:-1] for path in self.demo_paths]
-        )
+        demo_act_t = np.concatenate([path["actions"][:-1] for path in self.demo_paths])
 
-        # Prepare for inverse model input
-        #demo_obs_t = torch.from_numpy(demo_obs_t).float().to(self.device)
-        #demo_obs_t1 = torch.from_numpy(demo_obs_t1).float().to(self.device)
-        #demo_act_t = torch.from_numpy(demo_act_t).float().to(self.device)
-  
+        demo_obs_t = torch.from_numpy(demo_obs_t).float().to(self.device)
+        demo_obs_t1 = torch.from_numpy(demo_obs_t1).float().to(self.device)
+        demo_act_t = torch.from_numpy(demo_act_t).float().to(self.device)
 
-
-        # cache return distributions for the paths
         path_returns = [sum(p["rewards"]) for p in paths]
         mean_return = np.mean(path_returns)
         std_return = np.std(path_returns)
         min_return = np.amin(path_returns)
         max_return = np.amax(path_returns)
         base_stats = [mean_return, std_return, min_return, max_return]
+
         self.running_score = (
             mean_return
             if self.running_score is None
@@ -164,7 +179,6 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         act_t,
         demo_obs_t,
         demo_obs_t1,
-    
     ):
         # define the loss J
         # case of forward KL divergence
@@ -174,14 +188,16 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # 1)sampled part
 
         # calculate Q(s,a)
+        self.policy.is_rollout = False
         self.policy.model.requires_grad = False
         self.Qnet.requires_grad = True
 
         Q = self.Qnet.get_q(obs_t, act_t)
 
         # calculate V^pi(s')
-        print("obs_t1",obs_t1.shape)
+        print("obs_t1", obs_t1.shape)
         action = self.policy.get_action(obs_t1)
+        action = action[0]  # unpack the action from the info dict
         log_prob = self.policy.log_likelihood(obs_t1, action)
         next_Q = self.Qnet.get_q(obs_t1, action)
         Vs_next = next_Q - log_prob
@@ -215,9 +231,8 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         log_prob = self.policy.log_likelihood(obs_t, action)
 
         # calculate V^pi(s)
-        V = - (Q - log_prob).mean() #THE MINUS HAS BEEN ADDED BECAUSE TO
-                                    # MAXIMIZE THE ORIGINAL OBJECTIVE
-  
+        V = -(Q - log_prob).mean()  # THE MINUS HAS BEEN ADDED BECAUSE TO
+        # MAXIMIZE THE ORIGINAL OBJECTIVE
 
         V.backward()
         self.policy_opt.step()

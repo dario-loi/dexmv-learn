@@ -64,6 +64,8 @@ class MLP:
         self.param_sizes = [p.data.numpy().size for p in self.trainable_params]
         self.d = np.sum(self.param_sizes)  # total number of params
 
+        self.is_rollout = True
+
         # Placeholders
         # ------------------------
         self.obs_var = Variable(torch.randn(self.n), requires_grad=False)
@@ -105,20 +107,40 @@ class MLP:
     # Main functions
     # ============================================
     def get_action(self, observation):
-        o = np.float32(observation.transpose())
-        self.obs_var.data = torch.from_numpy(o)
-        mean = self.model(self.obs_var).data.numpy().ravel()
-        noise = np.exp(self.log_std_val) * np.random.randn(self.m)
+        if type(observation) == np.ndarray:
+            observation = (
+                torch.from_numpy(observation).float().to(self.model.fc0.weight.device)
+            )
+
+        std_val = torch.from_numpy(np.float32(self.log_std_val)).to(observation.device)
+
+        mean = self.model(observation)
+        noise = torch.exp(std_val) * torch.randn(self.m).to(observation.device)
         action = mean + noise
+
+        if self.is_rollout:
+            np_mean = mean.detach().cpu().numpy()
+
+            return [
+                action.detach().cpu().numpy(),
+                {
+                    "mean": np_mean,
+                    "log_std": self.log_std_val,
+                    "evaluation": np_mean,
+                },
+            ]
+
         return [action, {"mean": mean, "log_std": self.log_std_val, "evaluation": mean}]
 
     def mean_LL(self, observations, actions, model=None, log_std=None):
         model = self.model if model is None else model
         log_std = self.log_std if log_std is None else log_std
-        obs_var = Variable(torch.from_numpy(observations).float(), requires_grad=False)
-        act_var = Variable(torch.from_numpy(actions).float(), requires_grad=False)
-        mean = model(obs_var)
-        zs = (act_var - mean) / torch.exp(log_std)
+
+        log_std = log_std.to(observations.device)
+        action = actions[0]
+        mean = model(observations)
+
+        zs = (action - mean) / torch.exp(log_std)
         LL = (
             -0.5 * torch.sum(zs**2, dim=1)
             + -torch.sum(log_std)
@@ -128,7 +150,7 @@ class MLP:
 
     def log_likelihood(self, observations, actions, model=None, log_std=None):
         mean, LL = self.mean_LL(observations, actions, model, log_std)
-        return LL.data.numpy()
+        return LL
 
     def old_dist_info(self, observations, actions):
         mean, LL = self.mean_LL(observations, actions, self.old_model, self.old_log_std)
@@ -215,8 +237,11 @@ class MuNet(nn.Module):
         self.out_scale = Variable(self.out_scale, requires_grad=False)
 
     def forward(self, x):
-        print(f'x shape: {x.shape}')
-        print(f'in_shift shape: {self.in_shift.shape}')
+        self.in_shift = self.in_shift.to(x.device)
+        self.in_scale = self.in_scale.to(x.device)
+        self.out_shift = self.out_shift.to(x.device)
+        self.out_scale = self.out_scale.to(x.device)
+        self.to(x.device)
         out = (x - self.in_shift) / (self.in_scale + 1e-8)
         out = torch.tanh(self.fc0(out))
         out = torch.tanh(self.fc1(out))
