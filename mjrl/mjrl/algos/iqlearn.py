@@ -152,7 +152,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # Initialize Q-function parameters randomly
 
         ts = timer.time()
-        self.iq_update(obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1)
+        self.iq_update(obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1,demo_act_t)
         t_gLL += timer.time() - ts
 
         # Log information
@@ -162,13 +162,17 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
             self.logger.log_kv("running_score", self.running_score)
             try:
                 self.env.env.env.evaluate_success(paths, self.logger)
+                print("first case")
             except:
                 # nested logic for backwards compatibility. TODO: clean this up.
                 try:
                     success_rate = self.env.env.env.evaluate_success(paths)
                     self.logger.log_kv("success_rate", success_rate)
+                    print("second case")
                 except:
+                    print("third case")
                     pass
+          
 
         return base_stats
 
@@ -179,27 +183,28 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         act_t,
         demo_obs_t,
         demo_obs_t1,
+        demo_act_t
     ):
         # define the loss J
         # case of forward KL divergence
         # phi(x) = -exp-(x+1)
 
         # building J
-        # 1)sampled part
+        # 1)expert part
 
         # calculate Q(s,a)
         self.policy.is_rollout = False
         self.policy.model.requires_grad = False
         self.Qnet.requires_grad = True
 
-        Q = self.Qnet.get_q(obs_t, act_t)
+        Q = self.Qnet.get_q(demo_obs_t, demo_act_t)
 
         # calculate V^pi(s')
         print("obs_t1", obs_t1.shape)
-        action = self.policy.get_action(obs_t1)
+        action = self.policy.get_action(demo_obs_t1)
         action = action[0]  # unpack the action from the info dict
-        log_prob = self.policy.log_likelihood(obs_t1, action)
-        next_Q = self.Qnet.get_q(obs_t1, action)
+        log_prob = self.policy.log_likelihood(demo_obs_t1, action)
+        next_Q = self.Qnet.get_q(demo_obs_t1, action)
         Vs_next = next_Q - log_prob
 
         # argument of phi
@@ -208,11 +213,11 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # calculate phi
         phi = update / (1 - update)
 
-        # 2)expert part
+        # 2)sampled part
         # calculate V^pi(s_0)
-        action = self.policy.get_action(demo_obs_t1)[0]
-        log_prob = self.policy.log_likelihood(demo_obs_t1, action)
-        current_Q = self.Qnet.get_q(demo_obs_t, action)
+        action = self.policy.get_action(obs_t1)[0]
+        log_prob = self.policy.log_likelihood(obs_t1, action)
+        current_Q = self.Qnet.get_q(obs_t, action)
         V = current_Q - log_prob
 
         # calculate J
