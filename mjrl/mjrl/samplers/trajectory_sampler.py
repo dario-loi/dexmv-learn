@@ -91,7 +91,7 @@ def _try_multiprocess(args_list, num_cpu, max_process_time, max_timeouts, mode):
     # Base case
     if max_timeouts == 0:
         return None
-
+    
     pool = mp.Pool(processes=num_cpu, maxtasksperchild=1)
     if mode == "sample":
         parallel_runs = [

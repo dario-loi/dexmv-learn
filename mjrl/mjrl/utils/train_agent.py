@@ -7,7 +7,7 @@ from tabulate import tabulate
 from mjrl.utils.make_train_plots import make_train_plots
 
 # from mjrl.utils.gym_env import GymEnv
-from mjrl.samplers.trajectory_sampler import sample_paths
+from mjrl.samplers.trajectory_sampler import sample_paths, sample_paths_parallel
 import numpy as np
 import pickle
 import time as timer
@@ -23,7 +23,7 @@ def train_agent(
     niter=101,
     gamma=0.995,
     gae_lambda=None,
-    num_cpu=1,
+    num_cpu=10,
     sample_mode="trajectories",
     num_traj=50,
     num_samples=50000,  # has precedence, used with sample_mode = 'samples'
@@ -78,12 +78,13 @@ def train_agent(
         train_curve[i] = stats[0]
         if evaluation_rollouts is not None and evaluation_rollouts > 0:
             print("Performing evaluation rollouts ........")
-            eval_paths = sample_paths(
+            eval_paths = sample_paths_parallel(
                 N=evaluation_rollouts,
                 policy=agent.policy,
                 env_name=e.env_id,
                 mode="evaluation",
                 pegasus_seed=seed,
+                num_cpu=num_cpu
             )
             mean_pol_perf = np.mean([np.sum(path["rewards"]) for path in eval_paths])
             if agent.save_logs:
