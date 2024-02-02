@@ -29,7 +29,6 @@ from torch import nn
 from torch.nn import functional as F
 
 
-
 def dump_tensors(only_gpu=True):
     print("Tensor objects dump")
     import gc
@@ -97,11 +96,18 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         self.Qnet = QNet(env.observation_dim, env.action_dim, device="cuda")
         self.gamma = gamma
         self.demo_paths = demo_paths
+        
         self.Q_opt = torch.optim.Adam(self.Qnet.parameters(), lr=alpha)
         self.policy_opt = torch.optim.Adam(
             self.policy.model.parameters(), lr=alpha
         )  # maximize=True
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def get_v(self, obs):
+        action = self.policy.get_action(obs)[0]
+        log_prob = self.policy.log_likelihood(obs, action)
+        Q = self.Qnet.get_q(obs, action)
+        return Q - self.alpha * log_prob
 
     # @override
     def train_from_paths(self, paths):
@@ -152,7 +158,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # Initialize Q-function parameters randomly
 
         ts = timer.time()
-        self.iq_update(obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1,demo_act_t)
+        self.iq_update(obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1, demo_act_t)
         t_gLL += timer.time() - ts
 
         # Log information
@@ -172,19 +178,10 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
                 except:
                     print("third case")
                     pass
-          
 
         return base_stats
 
-    def iq_update(
-        self,
-        obs_t,
-        obs_t1,
-        act_t,
-        demo_obs_t,
-        demo_obs_t1,
-        demo_act_t
-    ):
+    def iq_update(self, obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1, demo_act_t):
         # define the loss J
         # case of forward KL divergence
         # phi(x) = -exp-(x+1)
@@ -197,31 +194,42 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         self.policy.model.requires_grad = False
         self.Qnet.requires_grad = True
 
+        cat_obs_t = torch.cat([obs_t, demo_obs_t], dim=0)
+        cat_obs_t1 = torch.cat([obs_t1, demo_obs_t1], dim=0)
+        cat_act_t = torch.cat([act_t, demo_act_t], dim=0)
+
+        V = self.get_v(cat_obs_t)
+        V_next = self.get_v(cat_obs_t1)
+        V_expert = self.get_v(demo_obs_t)
+        V_next_expert = self.get_v(demo_obs_t1)
+
         Q = self.Qnet.get_q(demo_obs_t, demo_act_t)
 
         # calculate V^pi(s')
         print("obs_t1", obs_t1.shape)
-        action = self.policy.get_action(demo_obs_t1)
-        action = action[0]  # unpack the action from the info dict
-        log_prob = self.policy.log_likelihood(demo_obs_t1, action)
-        next_Q = self.Qnet.get_q(demo_obs_t1, action)
-        Vs_next = next_Q - log_prob
 
         # argument of phi
-        update = Q - self.gamma * (Vs_next).mean()
+        update = Q - self.gamma * V_next_expert
+        # reward = (current_Q - y)[is_expert] ; y = self.gamma * Vs_next
 
         # calculate phi
         phi = update / (1 - update)
+        phi = phi.mean()
 
-        # 2)sampled part
+        # 2) sampled part
+        # calculate E_(replay)(V^pi(s) - V^pi(s'))
+
+        second = (V - self.gamma * V_next).mean()
+        J = -1 * (phi + second)eval_score
+
         # calculate V^pi(s_0)
-        action = self.policy.get_action(obs_t1)[0]
-        log_prob = self.policy.log_likelihood(obs_t1, action)
-        current_Q = self.Qnet.get_q(obs_t, action)
-        V = current_Q - log_prob
+        # action = self.policy.get_action(obs_t1)[0]
+        # log_prob = self.policy.log_likelihood(obs_t1, action)
+        # current_Q = self.Qnet.get_q(obs_t, action)
+        # V = current_Q - log_prob
 
         # calculate J
-        J = -1 * (phi.mean() - (1 - self.gamma) * V.mean())
+        # J = -1 * (phi.mean() - (1 - self.gamma) * V.mean())
 
         J.backward()
         self.Q_opt.step()
@@ -229,14 +237,8 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         self.policy.model.requires_grad = True
         self.Qnet.requires_grad = False
-
-        Q = self.Qnet.get_q(obs_t, act_t)
-
-        action = self.policy.get_action(obs_t)[0]
-        log_prob = self.policy.log_likelihood(obs_t, action)
-
-        # calculate V^pi(s)
-        V = -(Q - log_prob).mean()  # THE MINUS HAS BEEN ADDED BECAUSE TO
+        
+        V = -self.get_v(obs_t) # THE MINUS HAS BEEN ADDED BECAUSE TO
         # MAXIMIZE THE ORIGINAL OBJECTIVE
 
         V.backward()
