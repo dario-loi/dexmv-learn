@@ -14,7 +14,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 from torch.distributions import Categorical, Normal
 import copy
-
+from torchviz import make_dot
 # samplers
 import mjrl.samplers.trajectory_sampler as trajectory_sampler
 import mjrl.samplers.batch_sampler as batch_sampler
@@ -220,7 +220,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # calculate E_(replay)(V^pi(s) - V^pi(s'))
 
         second = (V - self.gamma * V_next).mean()
-        J = -1 * (phi + second)eval_score
+        J = -1 * (phi - second)
 
         # calculate V^pi(s_0)
         # action = self.policy.get_action(obs_t1)[0]
@@ -231,16 +231,22 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # calculate J
         # J = -1 * (phi.mean() - (1 - self.gamma) * V.mean())
 
+        
         J.backward()
         self.Q_opt.step()
         self.Q_opt.zero_grad()
+        #make_dot(J, params=dict(self.Qnet.named_parameters())).render("iqlearn", view=True, outfile="iqlearn.png")
+
+        
 
         self.policy.model.requires_grad = True
         self.Qnet.requires_grad = False
         
-        V = -self.get_v(obs_t) # THE MINUS HAS BEEN ADDED BECAUSE TO
+        V = (self.get_v(obs_t)).mean() # THE MINUS HAS BEEN ADDED BECAUSE TO
         # MAXIMIZE THE ORIGINAL OBJECTIVE
 
+        
         V.backward()
         self.policy_opt.step()
         self.policy_opt.zero_grad()
+ 
