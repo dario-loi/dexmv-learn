@@ -3,6 +3,8 @@ from re import match
 
 # from typing import override
 
+# For the whole project check the repo at: https://github.com/dario-loi/dexmv-learn
+
 logging.disable(logging.CRITICAL)
 import numpy as np
 import scipy as sp
@@ -96,7 +98,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         self.Qnet = QNet(env.observation_dim, env.action_dim, device="cuda")
         self.gamma = gamma
         self.demo_paths = demo_paths
-        
+
         self.Q_opt = torch.optim.Adam(self.Qnet.parameters(), lr=alpha)
         self.policy_opt = torch.optim.Adam(
             self.policy.model.parameters(), lr=alpha
@@ -153,10 +155,6 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # Keep track of times for various computations
         t_gLL = 0.0
 
-        # Q-function update
-        # --------------------------
-        # Initialize Q-function parameters randomly
-
         ts = timer.time()
         self.iq_update(obs_t, obs_t1, act_t, demo_obs_t, demo_obs_t1, demo_act_t)
         t_gLL += timer.time() - ts
@@ -187,7 +185,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # phi(x) = -exp-(x+1)
 
         # building J
-        # 1)expert part
+        # 1) expert part
 
         # calculate Q(s,a)
         self.policy.is_rollout = False
@@ -220,16 +218,7 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
         # calculate E_(replay)(V^pi(s) - V^pi(s'))
 
         second = (V - self.gamma * V_next).mean()
-        J = -1 * (phi + second)eval_score
-
-        # calculate V^pi(s_0)
-        # action = self.policy.get_action(obs_t1)[0]
-        # log_prob = self.policy.log_likelihood(obs_t1, action)
-        # current_Q = self.Qnet.get_q(obs_t, action)
-        # V = current_Q - log_prob
-
-        # calculate J
-        # J = -1 * (phi.mean() - (1 - self.gamma) * V.mean())
+        J = -1 * (phi + second)
 
         J.backward()
         self.Q_opt.step()
@@ -237,8 +226,8 @@ class IQLearn(batch_reinforce.BatchREINFORCE):
 
         self.policy.model.requires_grad = True
         self.Qnet.requires_grad = False
-        
-        V = -self.get_v(obs_t) # THE MINUS HAS BEEN ADDED BECAUSE TO
+
+        V = -self.get_v(obs_t)  # THE MINUS HAS BEEN ADDED BECAUSE TO
         # MAXIMIZE THE ORIGINAL OBJECTIVE
 
         V.backward()

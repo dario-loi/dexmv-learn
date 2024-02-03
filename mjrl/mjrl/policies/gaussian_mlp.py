@@ -120,7 +120,6 @@ class MLP:
 
         np_mean = mean.detach().cpu().numpy()
         if self.is_rollout:
-
             return [
                 action.detach().cpu().numpy(),
                 {
@@ -130,7 +129,10 @@ class MLP:
                 },
             ]
 
-        return [action, {"mean": np_mean, "log_std": self.log_std_val, "evaluation": np_mean}]
+        return [
+            action,
+            {"mean": np_mean, "log_std": self.log_std_val, "evaluation": np_mean},
+        ]
 
     def mean_LL(self, observations, actions, model=None, log_std=None):
         model = self.model if model is None else model

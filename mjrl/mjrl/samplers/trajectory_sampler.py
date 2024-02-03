@@ -10,11 +10,12 @@ import mjrl.samplers.base_sampler as base_sampler
 import mjrl.samplers.evaluation_sampler as eval_sampler
 import torch
 
+
 def sample_paths(
     N, policy, T=1e6, env=None, env_name=None, pegasus_seed=None, mode="sample"
 ):
     policy.model = policy.model.to("cpu")
-    
+
     if mode == "sample":
         return base_sampler.do_rollout(N, policy, T, env, env_name, pegasus_seed)
     elif mode == "evaluation":
@@ -91,7 +92,7 @@ def _try_multiprocess(args_list, num_cpu, max_process_time, max_timeouts, mode):
     # Base case
     if max_timeouts == 0:
         return None
-    
+
     pool = mp.Pool(processes=num_cpu, maxtasksperchild=1)
     if mode == "sample":
         parallel_runs = [

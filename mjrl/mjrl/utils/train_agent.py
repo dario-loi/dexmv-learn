@@ -84,7 +84,7 @@ def train_agent(
                 env_name=e.env_id,
                 mode="evaluation",
                 pegasus_seed=seed,
-                num_cpu=num_cpu
+                num_cpu=num_cpu,
             )
             mean_pol_perf = np.mean([np.sum(path["rewards"]) for path in eval_paths])
             if agent.save_logs:

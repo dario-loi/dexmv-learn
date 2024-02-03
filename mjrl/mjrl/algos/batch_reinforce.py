@@ -79,7 +79,13 @@ class BatchREINFORCE:
 
             if sample_mode == "trajectories":
                 paths = trajectory_sampler.sample_paths_parallel(
-                    N, self.policy, T, env_name=env_name, pegasus_seed=self.seed, num_cpu=num_cpu, mode="evaluation"
+                    N,
+                    self.policy,
+                    T,
+                    env_name=env_name,
+                    pegasus_seed=self.seed,
+                    num_cpu=num_cpu,
+                    mode="evaluation",
                 )
             elif sample_mode == "samples":
                 paths = batch_sampler.sample_paths(
